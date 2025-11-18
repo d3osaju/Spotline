@@ -105,6 +105,13 @@ class MusicLyricsIndicator extends PanelMenu.Button {
     }
     
     _buildMenu() {
+        // Player info section
+        this._playerInfoItem = new PopupMenu.PopupMenuItem('No player connected', {
+            reactive: false
+        });
+        this._playerInfoItem.label.style = 'font-size: 0.85em; color: #888;';
+        this.menu.addMenuItem(this._playerInfoItem);
+        
         // Track info section
         this._trackInfoItem = new PopupMenu.PopupMenuItem('No track playing', {
             reactive: false
@@ -116,14 +123,16 @@ class MusicLyricsIndicator extends PanelMenu.Button {
         // Playback controls
         const controlsBox = new St.BoxLayout({
             style_class: 'popup-menu-item',
-            x_expand: true
+            x_expand: true,
+            x_align: Clutter.ActorAlign.CENTER,
+            style: 'spacing: 12px;'
         });
         
         const prevButton = new St.Button({
             style_class: 'button',
             child: new St.Icon({
                 icon_name: 'media-skip-backward-symbolic',
-                icon_size: 16
+                icon_size: 20
             })
         });
         prevButton.connect('clicked', () => this._controlPlayback('Previous'));
@@ -132,7 +141,7 @@ class MusicLyricsIndicator extends PanelMenu.Button {
             style_class: 'button',
             child: new St.Icon({
                 icon_name: 'media-playback-start-symbolic',
-                icon_size: 16
+                icon_size: 20
             })
         });
         this._playPauseButton = playPauseButton;
@@ -142,7 +151,7 @@ class MusicLyricsIndicator extends PanelMenu.Button {
             style_class: 'button',
             child: new St.Icon({
                 icon_name: 'media-skip-forward-symbolic',
-                icon_size: 16
+                icon_size: 20
             })
         });
         nextButton.connect('clicked', () => this._controlPlayback('Next'));
@@ -152,7 +161,8 @@ class MusicLyricsIndicator extends PanelMenu.Button {
         controlsBox.add_child(nextButton);
         
         const controlsItem = new PopupMenu.PopupBaseMenuItem({
-            reactive: false
+            reactive: false,
+            can_focus: false
         });
         controlsItem.add_child(controlsBox);
         this.menu.addMenuItem(controlsItem);
@@ -384,11 +394,47 @@ class MusicLyricsIndicator extends PanelMenu.Button {
                 this._onPropertiesChanged.bind(this)
             );
 
+            this._updatePlayerInfo();
             this._updateTrackInfo();
             return true;
         } catch (e) {
             return false;
         }
+    }
+    
+    _updatePlayerInfo() {
+        if (!this._currentBusName) {
+            this._playerInfoItem.label.text = 'No player connected';
+            return;
+        }
+        
+        let playerName = 'Unknown Player';
+        let playerIcon = '♪';
+        
+        if (this._currentBusName.includes('spotify')) {
+            playerName = 'Spotify';
+            playerIcon = '🎵';
+        } else if (this._currentBusName.includes('youtube-music')) {
+            playerName = 'YouTube Music';
+            playerIcon = '🎵';
+        } else if (this._currentBusName.includes('chromium')) {
+            playerName = 'Chromium';
+            playerIcon = '🌐';
+        } else if (this._currentBusName.includes('chrome')) {
+            playerName = 'Chrome';
+            playerIcon = '🌐';
+        } else if (this._currentBusName.includes('firefox')) {
+            playerName = 'Firefox';
+            playerIcon = '🌐';
+        } else if (this._currentBusName.includes('brave')) {
+            playerName = 'Brave';
+            playerIcon = '🌐';
+        } else if (this._currentBusName.includes('edge')) {
+            playerName = 'Edge';
+            playerIcon = '🌐';
+        }
+        
+        this._playerInfoItem.label.text = `${playerIcon} Playing from ${playerName}`;
     }
 
     _onPropertiesChanged() {
