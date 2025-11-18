@@ -1,14 +1,16 @@
-# Spotify Lyrics GNOME Extension
+# Music Lyrics GNOME Extension
 
-A GNOME Shell extension that displays the currently playing song from Spotify in the top bar. Shows lyrics when available, otherwise displays the song name and artist.
+A GNOME Shell extension that displays the currently playing song from Spotify, YouTube Music, or any MPRIS-compatible player in the top bar. Shows lyrics when available, otherwise displays the song name and artist.
 
 ## Features
 
 - **Real-time synced lyrics** - Shows the current line of lyrics synchronized with playback
+- **Multi-player support** - Works with Spotify, YouTube Music, and other MPRIS players
 - Automatically fetches lyrics from LRCLIB (free, no API key required)
 - Falls back to song name and artist if lyrics aren't available
 - Updates in real-time as the song plays
 - Supports both synced (LRC format) and plain lyrics
+- Automatically switches between active players
 
 ## Installation
 
@@ -41,21 +43,32 @@ cp -r * ~/.local/share/gnome-shell/extensions/spotify-lyrics@gnome-shell-extensi
 
 The extension uses:
 - **LRCLIB API** - A free, open-source lyrics database (no API key needed)
-- **MPRIS DBus interface** - To monitor Spotify playback and get track position
+- **MPRIS DBus interface** - To monitor music playback from desktop apps and browsers
 - **LRC format parsing** - For time-synced lyrics that update as the song plays
 
 When a song plays, the extension:
-1. Fetches synced lyrics from LRCLIB
-2. Parses the LRC timestamps
-3. Displays the current line based on playback position
-4. Updates every 500ms for smooth transitions
+1. Detects active music players (desktop apps or browser tabs)
+2. Fetches synced lyrics from LRCLIB
+3. Parses the LRC timestamps
+4. Displays the current line based on playback position
+5. Updates every 500ms for smooth transitions
+6. Automatically switches to whichever player is currently playing
 
 ## Requirements
 
 - GNOME Shell 45 or 46
-- Spotify running on your system
+- Spotify, YouTube Music, or any MPRIS-compatible music player
 - DBus support (standard on most Linux systems)
 - Internet connection (for fetching lyrics)
+
+## Supported Players
+
+- **Spotify** - Desktop app and web player (in browser)
+- **YouTube Music** - Desktop app and web player (in browser)
+- **Browser-based players** - Works with Chromium, Chrome, Firefox, Brave, Edge
+- Any MPRIS-compatible media player
+
+The extension automatically detects music playing in your browser tabs and displays lyrics just like desktop apps.
 
 ## Development
 
@@ -70,13 +83,23 @@ journalctl -f -o cat /usr/bin/gnome-shell
 
 ## Troubleshooting
 
-- **Extension not showing**: Check if Spotify is running
-- **"Spotify not running" message**: Start Spotify and restart the extension
+- **Extension not showing**: Check if a supported music player is running
+- **"No music playing" message**: Start your music player and play a song
+- **Browser players not detected**: Make sure your browser supports MPRIS (most modern browsers do). You may need to enable media control in browser settings
 - **No lyrics showing**: Not all songs have synced lyrics in the database. The extension will fall back to showing the song name
-- **Lyrics out of sync**: The extension relies on Spotify's position reporting. Try pausing and resuming the song
-- **No updates**: Check DBus connection with:
+- **Lyrics out of sync**: The extension relies on the player's position reporting. Try pausing and resuming the song
+- **Multiple players**: The extension prioritizes the currently playing player. If multiple players are active, it connects to the one that's playing
+- **Check available players**: List all MPRIS players on your system:
   ```bash
+  dbus-send --session --dest=org.freedesktop.DBus --type=method_call --print-reply /org/freedesktop/DBus org.freedesktop.DBus.ListNames | grep mpris
+  ```
+- **Check player metadata**: Test if a specific player is working:
+  ```bash
+  # For Spotify
   dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.freedesktop.DBus.Properties.Get string:org.mpris.MediaPlayer2.Player string:Metadata
+  
+  # For browser players (replace instance number)
+  dbus-send --print-reply --dest=org.mpris.MediaPlayer2.chromium.instance12345 /org/mpris/MediaPlayer2 org.freedesktop.DBus.Properties.Get string:org.mpris.MediaPlayer2.Player string:Metadata
   ```
 - **Check logs**: View GNOME Shell logs for errors:
   ```bash

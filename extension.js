@@ -6,17 +6,37 @@ import Clutter from 'gi://Clutter';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 
-const SPOTIFY_BUS_NAME = 'org.mpris.MediaPlayer2.spotify';
 const MPRIS_PLAYER_PATH = '/org/mpris/MediaPlayer2';
 const MPRIS_PLAYER_INTERFACE = 'org.mpris.MediaPlayer2.Player';
 
 // Lyrics API configuration
 const LYRICS_API_URL = 'https://lrclib.net/api/get';
 
-const SpotifyLyricsIndicator = GObject.registerClass(
-class SpotifyLyricsIndicator extends PanelMenu.Button {
+// Helper function to check if a bus name is a supported music player
+function isSupportedPlayer(busName) {
+    // Desktop apps
+    if (busName === 'org.mpris.MediaPlayer2.spotify' ||
+        busName === 'org.mpris.MediaPlayer2.youtube-music') {
+        return true;
+    }
+    
+    // Browser-based players (chromium, chrome, firefox, etc.)
+    // These have instance IDs like: org.mpris.MediaPlayer2.chromium.instance12345
+    const browserPatterns = [
+        /^org\.mpris\.MediaPlayer2\.chromium\.instance\d+$/,
+        /^org\.mpris\.MediaPlayer2\.chrome\.instance\d+$/,
+        /^org\.mpris\.MediaPlayer2\.firefox\.instance\d+$/,
+        /^org\.mpris\.MediaPlayer2\.brave\.instance\d+$/,
+        /^org\.mpris\.MediaPlayer2\.edge\.instance\d+$/
+    ];
+    
+    return browserPatterns.some(pattern => pattern.test(busName));
+}
+
+const MusicLyricsIndicator = GObject.registerClass(
+class MusicLyricsIndicator extends PanelMenu.Button {
     _init() {
-        super._init(0.0, 'Spotify Lyrics Indicator');
+        super._init(0.0, 'Music Lyrics Indicator');
 
         this._label = new St.Label({
             text: 'No music playing',
@@ -35,33 +55,142 @@ class SpotifyLyricsIndicator extends PanelMenu.Button {
         this._proxy = null;
         this._propertiesChangedId = null;
         this._lyricsTimeoutId = null;
+        this._currentBusName = null;
+        this._busWatchId = null;
 
-        this._setupDBusProxy();
+        this._setupDBusMonitoring();
     }
 
-    _setupDBusProxy() {
+    _setupDBusMonitoring() {
+        // Watch for new media players appearing on the bus
+        this._busWatchId = Gio.bus_watch_name(
+            Gio.BusType.SESSION,
+            'org.mpris.MediaPlayer2.*',
+            Gio.BusNameWatcherFlags.NONE,
+            () => this._findActivePlayer(),
+            () => this._findActivePlayer()
+        );
+
+        this._findActivePlayer();
+    }
+
+    _findActivePlayer() {
         try {
-            // Create proxy for properties interface
-            this._proxy = Gio.DBusProxy.new_for_bus_sync(
+            const dbusProxy = Gio.DBusProxy.new_for_bus_sync(
                 Gio.BusType.SESSION,
                 Gio.DBusProxyFlags.NONE,
                 null,
-                SPOTIFY_BUS_NAME,
+                'org.freedesktop.DBus',
+                '/org/freedesktop/DBus',
+                'org.freedesktop.DBus',
+                null
+            );
+
+            dbusProxy.call(
+                'ListNames',
+                null,
+                Gio.DBusCallFlags.NONE,
+                -1,
+                null,
+                (proxy, result) => {
+                    try {
+                        const reply = proxy.call_finish(result);
+                        const names = reply.get_child_value(0).deep_unpack();
+                        
+                        // First try to find a playing supported player
+                        let foundPlayer = null;
+                        
+                        for (const name of names) {
+                            if (isSupportedPlayer(name)) {
+                                if (this._isPlayerPlaying(name)) {
+                                    foundPlayer = name;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // If no playing player, connect to any supported player
+                        if (!foundPlayer) {
+                            for (const name of names) {
+                                if (isSupportedPlayer(name)) {
+                                    foundPlayer = name;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        if (foundPlayer) {
+                            this._tryConnectToPlayer(foundPlayer);
+                        } else {
+                            this._label.set_text('No music playing');
+                        }
+                    } catch (e) {
+                        logError(e, 'Failed to list DBus names');
+                        this._label.set_text('No music playing');
+                    }
+                }
+            );
+        } catch (e) {
+            logError(e, 'Failed to query DBus');
+            this._label.set_text('No music playing');
+        }
+    }
+
+    _isPlayerPlaying(busName) {
+        try {
+            const playerProxy = Gio.DBusProxy.new_for_bus_sync(
+                Gio.BusType.SESSION,
+                Gio.DBusProxyFlags.NONE,
+                null,
+                busName,
+                MPRIS_PLAYER_PATH,
+                MPRIS_PLAYER_INTERFACE,
+                null
+            );
+
+            const playbackStatus = playerProxy.get_cached_property('PlaybackStatus');
+            if (playbackStatus) {
+                const status = playbackStatus.unpack();
+                return status === 'Playing';
+            }
+        } catch (e) {
+            // Ignore errors, player might not be available
+        }
+        return false;
+    }
+
+    _tryConnectToPlayer(busName) {
+        try {
+            // Create proxy for properties interface
+            const proxy = Gio.DBusProxy.new_for_bus_sync(
+                Gio.BusType.SESSION,
+                Gio.DBusProxyFlags.NONE,
+                null,
+                busName,
                 MPRIS_PLAYER_PATH,
                 'org.freedesktop.DBus.Properties',
                 null
             );
 
             // Create proxy for player interface to monitor changes
-            this._playerProxy = Gio.DBusProxy.new_for_bus_sync(
+            const playerProxy = Gio.DBusProxy.new_for_bus_sync(
                 Gio.BusType.SESSION,
                 Gio.DBusProxyFlags.NONE,
                 null,
-                SPOTIFY_BUS_NAME,
+                busName,
                 MPRIS_PLAYER_PATH,
                 MPRIS_PLAYER_INTERFACE,
                 null
             );
+
+            // Disconnect previous player if any
+            if (this._propertiesChangedId && this._playerProxy) {
+                this._playerProxy.disconnect(this._propertiesChangedId);
+            }
+
+            this._proxy = proxy;
+            this._playerProxy = playerProxy;
+            this._currentBusName = busName;
 
             this._propertiesChangedId = this._playerProxy.connect(
                 'g-properties-changed',
@@ -69,9 +198,9 @@ class SpotifyLyricsIndicator extends PanelMenu.Button {
             );
 
             this._updateTrackInfo();
+            return true;
         } catch (e) {
-            logError(e, 'Failed to create Spotify DBus proxy');
-            this._label.set_text('Spotify not running');
+            return false;
         }
     }
 
@@ -252,6 +381,11 @@ class SpotifyLyricsIndicator extends PanelMenu.Button {
             this._playerProxy.disconnect(this._propertiesChangedId);
             this._propertiesChangedId = null;
         }
+
+        if (this._busWatchId) {
+            Gio.bus_unwatch_name(this._busWatchId);
+            this._busWatchId = null;
+        }
         
         this._proxy = null;
         this._playerProxy = null;
@@ -259,14 +393,14 @@ class SpotifyLyricsIndicator extends PanelMenu.Button {
     }
 });
 
-export default class SpotifyLyricsExtension {
+export default class MusicLyricsExtension {
     constructor() {
         this._indicator = null;
     }
 
     enable() {
-        this._indicator = new SpotifyLyricsIndicator();
-        Main.panel.addToStatusArea('spotify-lyrics-indicator', this._indicator);
+        this._indicator = new MusicLyricsIndicator();
+        Main.panel.addToStatusArea('music-lyrics-indicator', this._indicator);
     }
 
     disable() {
