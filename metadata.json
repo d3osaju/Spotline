@@ -1,0 +1,10 @@
+{
+  "name": "Spotify Lyrics",
+  "description": "Displays synchronized lyrics for the currently playing Spotify song in the top bar.\n\nFeatures:\n* Real-time synced lyrics from LRCLIB API\n* Automatically updates as the song plays\n* Falls back to song name if lyrics unavailable\n* Works with Spotify via MPRIS interface",
+  "uuid": "spotify-lyrics@gnome-shell-extension",
+  "shell-version": [
+    "45",
+    "46"
+  ],
+  "url": "https://github.com/example/spotify-lyrics"
+}
