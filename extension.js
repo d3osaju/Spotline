@@ -5,6 +5,7 @@ import GLib from 'gi://GLib';
 import Clutter from 'gi://Clutter';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 const MPRIS_PLAYER_PATH = '/org/mpris/MediaPlayer2';
 const MPRIS_PLAYER_INTERFACE = 'org.mpris.MediaPlayer2.Player';
@@ -36,7 +37,12 @@ function isSupportedPlayer(busName) {
 const MusicLyricsIndicator = GObject.registerClass(
 class MusicLyricsIndicator extends PanelMenu.Button {
     _init() {
-        super._init(0.0, 'Music Lyrics Indicator');
+        super._init(0.5, 'Music Lyrics Indicator');
+
+        // Create a box to hold label and info icon
+        const box = new St.BoxLayout({
+            style_class: 'panel-status-menu-box'
+        });
 
         this._label = new St.Label({
             text: 'No music playing',
@@ -47,7 +53,36 @@ class MusicLyricsIndicator extends PanelMenu.Button {
         // Enable text clipping with ellipsis
         this._label.clutter_text.ellipsize = 3; // PANGO_ELLIPSIZE_END
 
-        this.add_child(this._label);
+        // Info icon button
+        this._infoIcon = new St.Icon({
+            icon_name: 'dialog-information-symbolic',
+            style_class: 'system-status-icon',
+            icon_size: 16,
+            y_align: Clutter.ActorAlign.CENTER,
+            opacity: 0,
+            reactive: true
+        });
+
+        box.add_child(this._label);
+        box.add_child(this._infoIcon);
+        this.add_child(box);
+        
+        // Show/hide info icon on hover
+        this.connect('enter-event', () => {
+            this._infoIcon.ease({
+                opacity: 255,
+                duration: 200,
+                mode: Clutter.AnimationMode.EASE_OUT_QUAD
+            });
+        });
+        
+        this.connect('leave-event', () => {
+            this._infoIcon.ease({
+                opacity: 0,
+                duration: 200,
+                mode: Clutter.AnimationMode.EASE_OUT_QUAD
+            });
+        });
 
         this._currentTrack = null;
         this._currentLyrics = null;
@@ -57,8 +92,160 @@ class MusicLyricsIndicator extends PanelMenu.Button {
         this._lyricsTimeoutId = null;
         this._currentBusName = null;
         this._busWatchId = null;
+        
+        // Settings
+        this._settings = {
+            showLyrics: true,
+            maxTextLength: 80,
+            updateInterval: 500
+        };
 
+        this._buildMenu();
         this._setupDBusMonitoring();
+    }
+    
+    _buildMenu() {
+        // Track info section
+        this._trackInfoItem = new PopupMenu.PopupMenuItem('No track playing', {
+            reactive: false
+        });
+        this.menu.addMenuItem(this._trackInfoItem);
+        
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        
+        // Playback controls
+        const controlsBox = new St.BoxLayout({
+            style_class: 'popup-menu-item',
+            x_expand: true
+        });
+        
+        const prevButton = new St.Button({
+            style_class: 'button',
+            child: new St.Icon({
+                icon_name: 'media-skip-backward-symbolic',
+                icon_size: 16
+            })
+        });
+        prevButton.connect('clicked', () => this._controlPlayback('Previous'));
+        
+        const playPauseButton = new St.Button({
+            style_class: 'button',
+            child: new St.Icon({
+                icon_name: 'media-playback-start-symbolic',
+                icon_size: 16
+            })
+        });
+        this._playPauseButton = playPauseButton;
+        playPauseButton.connect('clicked', () => this._controlPlayback('PlayPause'));
+        
+        const nextButton = new St.Button({
+            style_class: 'button',
+            child: new St.Icon({
+                icon_name: 'media-skip-forward-symbolic',
+                icon_size: 16
+            })
+        });
+        nextButton.connect('clicked', () => this._controlPlayback('Next'));
+        
+        controlsBox.add_child(prevButton);
+        controlsBox.add_child(playPauseButton);
+        controlsBox.add_child(nextButton);
+        
+        const controlsItem = new PopupMenu.PopupBaseMenuItem({
+            reactive: false
+        });
+        controlsItem.add_child(controlsBox);
+        this.menu.addMenuItem(controlsItem);
+        
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        
+        // Toggle lyrics display
+        this._lyricsToggle = new PopupMenu.PopupSwitchMenuItem(
+            'Show Lyrics',
+            this._settings.showLyrics
+        );
+        this._lyricsToggle.connect('toggled', (item) => {
+            this._settings.showLyrics = item.state;
+            if (!item.state) {
+                if (this._lyricsTimeoutId) {
+                    GLib.source_remove(this._lyricsTimeoutId);
+                    this._lyricsTimeoutId = null;
+                }
+                this._updateTrackInfo();
+            } else {
+                this._updateTrackInfo();
+            }
+        });
+        this.menu.addMenuItem(this._lyricsToggle);
+        
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        
+        // Refresh button
+        const refreshItem = new PopupMenu.PopupMenuItem('Refresh Player');
+        refreshItem.connect('activate', () => {
+            this._findActivePlayer();
+        });
+        this.menu.addMenuItem(refreshItem);
+        
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        
+        // Info submenu
+        this._infoSubmenu = new PopupMenu.PopupSubMenuMenuItem('About');
+        
+        // GitHub link
+        const githubItem = new PopupMenu.PopupMenuItem('View on GitHub');
+        githubItem.connect('activate', () => {
+            Gio.AppInfo.launch_default_for_uri(
+                'https://github.com/d3osaju/Spotline',
+                null
+            );
+        });
+        this._infoSubmenu.menu.addMenuItem(githubItem);
+        
+        // Credits
+        const creditsItem = new PopupMenu.PopupMenuItem('Created by deosaju', {
+            reactive: false
+        });
+        creditsItem.label.style = 'font-size: 0.9em; color: #888;';
+        this._infoSubmenu.menu.addMenuItem(creditsItem);
+        
+        this.menu.addMenuItem(this._infoSubmenu);
+    }
+    
+    _controlPlayback(action) {
+        if (!this._playerProxy) {
+            return;
+        }
+        
+        try {
+            this._playerProxy.call(
+                action,
+                null,
+                Gio.DBusCallFlags.NONE,
+                -1,
+                null,
+                null
+            );
+        } catch (e) {
+            logError(e, `Failed to ${action}`);
+        }
+    }
+    
+    _updatePlayPauseButton() {
+        if (!this._playerProxy || !this._playPauseButton) {
+            return;
+        }
+        
+        try {
+            const playbackStatus = this._playerProxy.get_cached_property('PlaybackStatus');
+            if (playbackStatus) {
+                const status = playbackStatus.unpack();
+                const icon = status === 'Playing' ? 'media-playback-pause-symbolic' : 'media-playback-start-symbolic';
+                this._playPauseButton.child.icon_name = icon;
+            }
+        } catch (e) {
+            logError(e, 'Failed to update play/pause button');
+        }
     }
 
     _setupDBusMonitoring() {
@@ -206,6 +393,7 @@ class MusicLyricsIndicator extends PanelMenu.Button {
 
     _onPropertiesChanged() {
         this._updateTrackInfo();
+        this._updatePlayPauseButton();
     }
 
     _updateTrackInfo() {
@@ -217,26 +405,37 @@ class MusicLyricsIndicator extends PanelMenu.Button {
             const metadata = this._playerProxy.get_cached_property('Metadata');
             if (!metadata) {
                 this._label.set_text('No music playing');
+                this._trackInfoItem.label.text = 'No track playing';
                 return;
             }
 
             const metadataDict = metadata.deep_unpack();
             const title = metadataDict['xesam:title']?.unpack() || null;
             const artist = metadataDict['xesam:artist']?.deep_unpack()[0] || null;
+            const album = metadataDict['xesam:album']?.unpack() || null;
             
             // If both title and artist are missing, show icon or nothing
             if (!title && !artist) {
                 this._label.set_text('♪');
+                this._trackInfoItem.label.text = 'Unknown track';
                 return;
             }
             
             this._currentTrack = {
                 title: title || 'Unknown Track',
-                artist: artist || 'Unknown Artist'
+                artist: artist || 'Unknown Artist',
+                album: album || 'Unknown Album'
             };
+            
+            // Update menu with track info
+            this._trackInfoItem.label.text = `${this._currentTrack.artist} - ${this._currentTrack.title}`;
 
-            // Try to fetch lyrics
-            this._fetchLyrics(this._currentTrack.title, this._currentTrack.artist);
+            // Try to fetch lyrics if enabled
+            if (this._settings.showLyrics) {
+                this._fetchLyrics(this._currentTrack.title, this._currentTrack.artist);
+            } else {
+                this._label.set_text(this._truncateText(`${this._currentTrack.artist} - ${this._currentTrack.title}`, this._settings.maxTextLength));
+            }
         } catch (e) {
             logError(e, 'Failed to get track info');
         }
@@ -318,8 +517,8 @@ class MusicLyricsIndicator extends PanelMenu.Button {
         // Get current playback position
         this._updateCurrentLyricLine();
         
-        // Update lyrics every 500ms
-        this._lyricsTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+        // Update lyrics based on configured interval
+        this._lyricsTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, this._settings.updateInterval, () => {
             this._updateCurrentLyricLine();
             return GLib.SOURCE_CONTINUE;
         });
