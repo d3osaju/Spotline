@@ -221,16 +221,22 @@ class MusicLyricsIndicator extends PanelMenu.Button {
             }
 
             const metadataDict = metadata.deep_unpack();
-            const title = metadataDict['xesam:title']?.unpack() || 'Unknown';
-            const artist = metadataDict['xesam:artist']?.deep_unpack()[0] || 'Unknown';
+            const title = metadataDict['xesam:title']?.unpack() || null;
+            const artist = metadataDict['xesam:artist']?.deep_unpack()[0] || null;
+            
+            // If both title and artist are missing, show icon or nothing
+            if (!title && !artist) {
+                this._label.set_text('♪');
+                return;
+            }
             
             this._currentTrack = {
-                title: title,
-                artist: artist
+                title: title || 'Unknown Track',
+                artist: artist || 'Unknown Artist'
             };
 
             // Try to fetch lyrics
-            this._fetchLyrics(title, artist);
+            this._fetchLyrics(this._currentTrack.title, this._currentTrack.artist);
         } catch (e) {
             logError(e, 'Failed to get track info');
         }
