@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.spotify-lyrics" path="/org/gnome/shell/extensions/spotify-lyrics/">
+    <key name="position-in-panel" type="s">
+      <default>'right'</default>
+      <summary>Position in Panel</summary>
+      <description>Where to place the indicator in the panel (left, center, right)</description>
+      <choices>
+        <choice value='left'/>
+        <choice value='center'/>
+        <choice value='right'/>
+      </choices>
+    </key>
+    <key name="max-text-length" type="i">
+      <default>80</default>
+      <range min="10" max="200"/>
+      <summary>Max Text Length</summary>
+      <description>Maximum capacity of text to display</description>
+    </key>
+  </schema>
+</schemalist>
